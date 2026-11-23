@@ -36,8 +36,9 @@ jobs:
           cfg['identifier'] = 'com.playeaw.browseredition.godmode'
           cfg['mainBinaryName'] = 'Empire at War Browser Edition God Mode'
           cfg['plugins']['updater']['endpoints'] = []
+          cfg['bundle']['createUpdaterArtifacts'] = False
           c.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
-          print('Patched space damage and configured separate app identity.')
+          print('Patched space damage; updater artifact signing disabled; separate app identity configured.')
       - name: Install dependencies
         run: npm ci
       - name: Build Windows installer
