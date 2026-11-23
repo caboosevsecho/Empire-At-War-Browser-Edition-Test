@@ -1,4 +1,4 @@
-name: Build Space God Mode (experimental)
+name: Build Space and Ground God Mode (experimental)
 on:
   workflow_dispatch:
 permissions:
@@ -18,7 +18,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - name: Apply player-only space damage patch and isolate installation
+      - name: Apply player-only space and ground damage patches
         shell: python
         run: |
           from pathlib import Path
@@ -30,6 +30,18 @@ jobs:
           pos = s.index(needle, anchor)
           s = s[:pos] + 'if (target.player?.human) return;\n    ' + s[pos:]
           p.write_text(s, encoding='utf-8')
+          # Ground combat: LandWorld.hurt is the shared damage entry point.
+          ground = Path('public/js/game/land.js')
+          g = ground.read_text(encoding='utf-8')
+          start = g.index('  hurt(u, amount, from, how =')
+          marker = '    if (u.dead || u.invulnUntil > this.time || u.limbo) return;'
+          pos_ground = g.index(marker, start)
+          guard = '    if (u && this.isHumanSide?.(u.side)) return;\n'
+          if guard.strip() in g[start:start + 450]:
+            raise RuntimeError('Ground God Mode guard already exists; refusing duplicate patch')
+          g = g[:pos_ground] + guard + g[pos_ground:]
+          ground.write_text(g, encoding='utf-8')
+          assert 'if (u && this.isHumanSide?.(u.side)) return;' in g[start:start + 450]
           c = Path('src-tauri/tauri.conf.json')
           cfg = json.loads(c.read_text(encoding='utf-8'))
           cfg['productName'] = 'Empire at War Browser Edition God Mode'
@@ -38,7 +50,16 @@ jobs:
           cfg['plugins']['updater']['endpoints'] = []
           cfg['bundle']['createUpdaterArtifacts'] = False
           c.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
-          print('Patched space damage; updater artifact signing disabled; separate app identity configured.')
+          print('Patched space and ground damage; updater signing disabled; separate app identity configured.')
+      - name: Verify both gameplay patches
+        shell: python
+        run: |
+          from pathlib import Path
+          s = Path('public/js/game/sim.js').read_text(encoding='utf-8')
+          g = Path('public/js/game/land.js').read_text(encoding='utf-8')
+          assert 'if (target.player?.human) return;' in s[s.index('  applyDamage('):s.index('  applyDamage(')+600]
+          assert 'if (u && this.isHumanSide?.(u.side)) return;' in g[g.index('  hurt(u, amount, from, how ='):g.index('  hurt(u, amount, from, how =')+350]
+          print('Verified both space and ground God Mode guards are present.')
       - name: Install dependencies
         run: npm ci
       - name: Build Windows installer
@@ -46,6 +67,6 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Browser-Edition-Space-GodMode-Windows
+          name: Browser-Edition-Space-Ground-GodMode-Windows
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
