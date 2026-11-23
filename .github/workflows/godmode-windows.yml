@@ -1,4 +1,4 @@
-name: Build Space and Ground God Mode (experimental)
+name: Build God Mode and Unlimited Population v0.3
 on:
   workflow_dispatch:
 permissions:
@@ -41,6 +41,25 @@ jobs:
             raise RuntimeError('Ground God Mode guard already exists; refusing duplicate patch')
           g = g[:pos_ground] + guard + g[pos_ground:]
           ground.write_text(g, encoding='utf-8')
+          # v0.3: large practical population caps for human players only.
+          # Space: recountPop recalculates cap, so modify it after normal overrides.
+          s = p.read_text(encoding='utf-8')
+          pop_line = '    for (const p of this.players) if (p.popCapFixed > 0) p.popCap = p.popCapFixed;'
+          assert s.count(pop_line) == 1, 'Space cap anchor changed upstream'
+          s = s.replace(pop_line, pop_line + '\n    for (const p of this.players) if (p.human) p.popCap = 1000000000;')
+          p.write_text(s, encoding='utf-8')
+          # Ground: both reinforcement checks consult popCap(side).
+          ground_cap = '  popCap(side) {\n'
+          assert g.count(ground_cap) == 1, 'Ground cap anchor changed upstream'
+          g = g.replace(ground_cap, ground_cap + '    if (this.isHumanSide?.(side)) return 1000000000;\n')
+          ground.write_text(g, encoding='utf-8')
+          # Galactic: ship construction uses the exported populationCap function.
+          gp = Path('public/js/game/galacticproduction.js')
+          x = gp.read_text(encoding='utf-8')
+          galaxy_cap = 'export function populationCap(g, owner) {\n'
+          assert x.count(galaxy_cap) == 1, 'Galactic cap anchor changed upstream'
+          x = x.replace(galaxy_cap, galaxy_cap + '  if (g.humans?.some(f => String(f).toUpperCase() === String(owner).toUpperCase())) return 1000000000;\n')
+          gp.write_text(x, encoding='utf-8')
           assert 'if (u && this.isHumanSide?.(u.side)) return;' in g[start:start + 450]
           c = Path('src-tauri/tauri.conf.json')
           cfg = json.loads(c.read_text(encoding='utf-8'))
@@ -51,7 +70,7 @@ jobs:
           cfg['bundle']['createUpdaterArtifacts'] = False
           c.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
           print('Patched space and ground damage; updater signing disabled; separate app identity configured.')
-      - name: Verify both gameplay patches
+      - name: Verify God Mode and population patches
         shell: python
         run: |
           from pathlib import Path
@@ -59,7 +78,11 @@ jobs:
           g = Path('public/js/game/land.js').read_text(encoding='utf-8')
           assert 'if (target.player?.human) return;' in s[s.index('  applyDamage('):s.index('  applyDamage(')+600]
           assert 'if (u && this.isHumanSide?.(u.side)) return;' in g[g.index('  hurt(u, amount, from, how ='):g.index('  hurt(u, amount, from, how =')+350]
-          print('Verified both space and ground God Mode guards are present.')
+          gp = Path('public/js/game/galacticproduction.js').read_text(encoding='utf-8')
+          assert 'if (p.human) p.popCap = 1000000000;' in s
+          assert 'if (this.isHumanSide?.(side)) return 1000000000;' in g
+          assert 'g.humans?.some(f => String(f).toUpperCase() === String(owner).toUpperCase())' in gp
+          print('Verified space and ground God Mode plus all three human-only population caps.')
       - name: Install dependencies
         run: npm ci
       - name: Build Windows installer
@@ -67,6 +90,6 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Browser-Edition-Space-Ground-GodMode-Windows
+          name: Browser-Edition-GodMode-UnlimitedPop-v0.3-Windows
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
